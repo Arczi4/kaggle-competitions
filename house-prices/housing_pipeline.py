@@ -4,9 +4,7 @@ import pandas as pd
 from typing import Sequence
 
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, RobustScaler
-
-
+from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder, RobustScaler, PolynomialFeatures
 
 # LotArea, GrLivArea
 class Log1pFeatureImputer(BaseEstimator, TransformerMixin):
@@ -118,8 +116,14 @@ class SFImputer(BaseEstimator, TransformerMixin):
 
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X_out = X.copy()
-        X_out['FloorTotalSF'] = X['1stFlrSF'] + X['2ndFlrSF']
-        X_out['TotalSF'] = X_out['FloorTotalSF'] = X_out['TotalBsmtSF']
+
+        first = X_out['1stFlrSF'].fillna(0)
+        second = X_out['2ndFlrSF'].fillna(0)
+        bsmt = X_out['TotalBsmtSF'].fillna(0)
+
+        X_out['FloorTotalSF'] = first + second
+        X_out['TotalSF'] = X_out['FloorTotalSF'] + bsmt
+
         return X_out
 
 
@@ -132,8 +136,13 @@ class GarageFeaturesImputer(BaseEstimator, TransformerMixin):
         X_out['GarageYrBlt'] = X_out['GarageYrBlt'].fillna(X_out['YearBuilt'])
 
         # fill 0 if no garage
+        ratio = X_out['GarageArea'] / X_out['GarageCars'].replace({0: np.nan})
+        X_out['GarageAreaPerCar'] = ratio.fillna(0)
+        
         X_out['GarageAreaPerCar'] = X_out['GarageArea'] / X_out['GarageCars']
         X_out['GarageAreaPerCar'] = X_out['GarageAreaPerCar'].fillna(0)
+        X_out['GarageArea'] = X_out['GarageArea'].fillna(0.0)
+        X_out['GarageCars'] = X_out['GarageCars'].fillna(0.0)
 
         return X_out
 
@@ -272,22 +281,25 @@ class HousingNominalOneHotEncoder(BaseEstimator, TransformerMixin):
         return X_out
     
 
-class QuadraticFeaturesImputer(BaseEstimator, TransformerMixin):
+class PolyFeaturesImputer(BaseEstimator, TransformerMixin):
+    def __init__(self, features: list, degree: int):
+        self.features = features
+        self.degree = degree
+
     def fit(self, X: pd.DataFrame, y=None):
+        X_poly = X[self.features].copy()
+        
+        self.poly_features = PolynomialFeatures(degree=self.degree)
+        self.poly_features.fit(X_poly)
+        self.new_cols = self.poly_features.get_feature_names_out(self.features)
+
         return self
     
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         X_out = X.copy()
+        X_poly = X_out[self.features].copy().fillna(0.0)
+        X_out[self.new_cols] = self.poly_features.transform(X_poly)
         
-        X_out['OverallQual^2'] = X['OverallQual_ord'] ** 2
-        X_out['OverallCond^2'] = X['OverallCond_ord'] ** 2
-        X_out['YearBuilt^2'] = X['YearBuilt'] ** 2
-        X_out['FloorTotalSF^2'] = X['FloorTotalSF'] ** 2
-        X_out['TotalBsmtSF^2'] = X['TotalBsmtSF'] ** 2
-        X_out['TotalSF^2'] = X['TotalSF'] ** 2
-        X_out['GarageAreaPerCar^2'] = X['GarageAreaPerCar'] ** 2
-        X_out['TotalBsmtBath^2'] = X['TotalBsmtBath'] ** 2
-
         return X_out
 
 
